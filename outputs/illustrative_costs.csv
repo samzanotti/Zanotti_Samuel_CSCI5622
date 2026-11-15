@@ -1,0 +1,7 @@
+FN_to_FP_cost_ratio,Always Pass (baseline),Logistic Regression,Decision Tree
+1,31,89,148
+3,93,127,184
+5,155,165,220
+7,217,203,256
+10,310,260,310
+20,620,450,490

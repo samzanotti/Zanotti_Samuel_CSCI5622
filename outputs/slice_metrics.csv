@@ -1,0 +1,5 @@
+Model,Slice,n,actual_failures,missed_failures,found_failures,failure_recall_pct,recall_CI_low,recall_CI_high
+Logistic Regression,Fewer missing,255,16,9,7,43.8,23.1,66.8
+Logistic Regression,More missing,216,15,10,5,33.3,15.2,58.3
+Decision Tree,Fewer missing,255,16,10,6,37.5,18.5,61.4
+Decision Tree,More missing,216,15,8,7,46.7,24.8,69.9

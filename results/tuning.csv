@@ -1,0 +1,3 @@
+Model,best_settings,training_CV_failure_recall_pct
+Logistic Regression,C=0.01,39.5
+Decision Tree,"max_depth=3, min_samples_leaf=10",39.8

@@ -1,0 +1,4 @@
+Model,N,TN,FP,FN,TP,accuracy_pct,fail_recall_pct,fail_precision_pct,recall_CI_low,recall_CI_high
+Always Pass (baseline),471,440,0,31,0,93.42,0.0,0.0,0.0,11.0
+Logistic Regression,471,370,70,19,12,81.1,38.71,14.63,23.7,56.2
+Decision Tree,471,310,130,18,13,68.58,41.94,9.09,26.4,59.2

@@ -1,0 +1,12 @@
+{
+  "seed": 42,
+  "test_size": 0.3,
+  "train_n": 1096,
+  "test_n": 471,
+  "test_failures": 31,
+  "missingness_cutoff": 24.0,
+  "PCA_variance_explained_train": [
+    0.0574655645581103,
+    0.0359276825474636
+  ]
+}

@@ -1,0 +1,4 @@
+Model,FP,FN,TP,illustrative_error_cost,break_even_FN_to_FP_ratio_vs_baseline
+Always Pass (baseline),0,31,0,310,
+Logistic Regression,108,13,18,238,6.0
+Decision Tree,179,11,20,289,8.95

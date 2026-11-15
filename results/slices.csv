@@ -1,0 +1,9 @@
+Model,variable,slice,sample_size,actual_failures,detected_failures,missed_failures,failure_recall_pct,recall_95pct_low,recall_95pct_high,exploratory,worst_observed
+Logistic Regression,Missing sensor readings,Fewer missing,255,16,9,7,56.2,33.2,76.9,No,No
+Logistic Regression,Missing sensor readings,More missing,216,15,9,6,60.0,35.7,80.2,No,No
+Decision Tree,Missing sensor readings,Fewer missing,255,16,9,7,56.2,33.2,76.9,No,No
+Decision Tree,Missing sensor readings,More missing,216,15,11,4,73.3,48.0,89.1,No,No
+Logistic Regression,Production timestamp,Earlier,222,22,13,9,59.1,38.7,76.7,Yes,No
+Logistic Regression,Production timestamp,Later,249,9,5,4,55.6,26.7,81.1,Yes,Yes (exploratory)
+Decision Tree,Production timestamp,Earlier,222,22,14,8,63.6,43.0,80.3,Yes,No
+Decision Tree,Production timestamp,Later,249,9,6,3,66.7,35.4,87.9,Yes,No

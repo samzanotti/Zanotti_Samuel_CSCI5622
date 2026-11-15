@@ -1,0 +1,12 @@
+Decision: flag manufacturing samples for extra inspection, not automatic scrap.
+Locked split: 70/30 stratified, seed 42; primary metric: failure recall.
+Locked baseline: always predict Pass.
+Both models tuned with TRAINING-ONLY 3-fold CV on failure recall.
+PCA: training-only two-component view, explaining 9.3% of total sensor variance.
+Slice variables: missing readings (training median 24) and timestamp (training median 2008-09-09 03:30:30).
+Worst observed slice (exploratory): Logistic Regression, Production timestamp, Later; n=249, failures=9.
+Example cost assumption: one missed failure = 10 units; one unnecessary inspection = 1 unit.
+Under that ASSUMPTION, lowest test-set error cost: Logistic Regression.
+Recommendation: at most pilot as an inspection aid; do not auto-reject chips.
+Reversal: change the recommendation if actual cost ratios, independent production validation, or additional false-positive burden disagree.
+These are production entities, not verified individual finished chips.
