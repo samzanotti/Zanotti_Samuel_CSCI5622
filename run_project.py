@@ -132,16 +132,6 @@ but we cant see any of the failures
 
 
 #models for both LR and Decision trees
-models = {          #make this a dictionary, vals are tuples. Now we can call everything together (each idv model + hyperparam)
-    'Logistic Regression': (
-        make_pipeline(
-            SimpleImputer(strategy='median', keep_empty_features=True),
-            StandardScaler(),
-            LogisticRegression(class_weight='balanced', solver='liblinear',
-                               max_iter=2000, random_state=SEED)
-        ),
-        {'logisticregression__C': [0.01, 0.1, 1.0]}
-    ),
 '''
 pipeline explaination: measurement -> median imputation -> StandardScalar -> LogisticRegression: pipeline ensures the preprocessing is consistently applied.
 
@@ -158,8 +148,16 @@ along with LR there are the given hyperparams: This provides three values of C f
 discouraging larger coeffs in LR, our model goes with 0.01 based off of training cross validation recall
 
 '''
-
-
+models = {          #make this a dictionary, vals are tuples. Now we can call everything together (each idv model + hyperparam)
+    'Logistic Regression': (
+        make_pipeline(
+            SimpleImputer(strategy='median', keep_empty_features=True),
+            StandardScaler(),
+            LogisticRegression(class_weight='balanced', solver='liblinear',
+                               max_iter=2000, random_state=SEED)
+        ),
+        {'logisticregression__C': [0.01, 0.1, 1.0]}
+    ),
 
     'Decision Tree': (
         make_pipeline(
