@@ -34,9 +34,11 @@ FIGURES_DIR = ROOT / 'figures'
 DATA_URL = 'https://archive.ics.uci.edu/static/public/179/secom.zip'
 # ---------------------------------------------------------------------
 
-
+#Claude wrote this out for me, extract the data from the zipped file, and organize it for me (thank you Claude)
 def load_secom():
-    """Read SECOM, downloading the two UCI files if needed."""
+    """
+    Read SECOM, downloading the two UCI files if needed.
+    """
     DATA_DIR.mkdir(exist_ok=True)
     names = ['secom.data', 'secom_labels.data']
 
@@ -83,9 +85,16 @@ def load_secom():
 
 
 def recall_interval(found, total):
-    """95% Wilson interval for failure recall (useful for small slices)."""
+    """
+    95% Wilson interval for failure recall (useful for small slices).
+    Good for SECOM analysis on dataset because it has only 104 failing 
+    chips in the entire dataset, and even fewer in each test subgroup. 
+    The observed recall could be uncertain, hence the need for 95% interval here
+    this quantifies the uncertainty and prevents me from using a recall calculated here
+    as a precise estimate
+    """
     if total == 0:
-        return np.nan, np.nan
+        return np.nan, np.nan   #handles a group with no failures, recall would be undefined here otherwise, avoid divide by 0 error
     z = 1.96
     p = found / total
     d = 1 + z**2 / total
@@ -95,23 +104,35 @@ def recall_interval(found, total):
 
 
 # 1. load the data and make the same 70/30 split used in the proposal
-X, y, timestamps = load_secom()
-RESULTS_DIR.mkdir(exist_ok=True)
+X, y, timestamps = load_secom() #run the function to get x y and timestamp
+RESULTS_DIR.mkdir(exist_ok=True)    #save output in folders 
 FIGURES_DIR.mkdir(exist_ok=True)
 train_rows, test_rows = train_test_split(
-    np.arange(len(X)), test_size=TEST_SIZE, random_state=SEED, stratify=y
+    np.arange(len(X)), test_size=TEST_SIZE, random_state=SEED, stratify=y #Stratification keeps approximately the same proportions of passing and failing samples in the training and test sets. Without stratification, a random split could contain noticeably different failure proportions, which would make your evaluation less stable.
 )
-X_train, X_test = X.iloc[train_rows], X.iloc[test_rows]
-y_train, y_test = y.iloc[train_rows], y.iloc[test_rows]
-print(f'Training: {len(X_train)}; testing: {len(X_test)}; '
+X_train = X.iloc[train_rows]    #iloc selects row or column from df by their integer position
+X_test = X.iloc[test_rows]
+y_train = y.iloc[train_rows]    #1,096 training samples and 471 test samples, including 31 failures.
+y_test = y.iloc[test_rows]
+
+#print check
+print(f'Training: {len(X_train)}; testing: {len(X_test)}; ' 
       f'test failures: {int(y_test.sum())}')
 
-# 2. baseline: predict pass for every test sample
-predictions = {'Always Pass (baseline)': np.zeros(len(y_test), dtype=int)}
-
+# 2. baseline: predict pass for every test sample, this is just for something to compare to (DUMB MODEL)
+predictions = {'Always Pass (baseline)': np.zeros(len(y_test), dtype=int)}  
+'''
+this is literally just a zero vector (0:pass 1:fail)
+accuracy alone is misleading for this dataset!!!! 
+almost everything is gonna pass, so accuracy will be high,
+but we cant see any of the failures
+'''
 # 3. train and tune both models using 3-fold cross-validation on TRAINING data
 # Imputer and scaler are inside the pipeline to avoid data leakage.
-models = {
+
+
+#models for both LR and Decision trees
+models = {          #make this a dictionary, vals are tuples. Now we can call everything together (each idv model + hyperparam)
     'Logistic Regression': (
         make_pipeline(
             SimpleImputer(strategy='median', keep_empty_features=True),
@@ -121,6 +142,25 @@ models = {
         ),
         {'logisticregression__C': [0.01, 0.1, 1.0]}
     ),
+'''
+pipeline explaination: measurement -> median imputation -> StandardScalar -> LogisticRegression: pipeline ensures the preprocessing is consistently applied.
+
+Median Imputation: Fill in the missing numeriacal values with the median value, solid way to replace whatever is missing with accurate enough data
+less sensitive to extreme values!
+
+StandardScaler: Transforms measurements (X) based on their mean and Stdev. This way all of the measurements are scaled the same, a measurement that is 
+from 0-10000 wont dominate a measurement from 0-10, in this case this would be the more common pass class instead of the fail class. Side effect 
+is increasing FPs because the model is now more likely to fail
+
+LogisticRegression:class_weight adjusts y , liblinear uses L1 or L2 regularizion, max iter set to 2000 in case something goes wrong and this process goes 
+on forever for somereason, it will be cut off
+along with LR there are the given hyperparams: This provides three values of C for cross-validation to compare. Smaller C means stronger regularization, 
+discouraging larger coeffs in LR, our model goes with 0.01 based off of training cross validation recall
+
+'''
+
+
+
     'Decision Tree': (
         make_pipeline(
             SimpleImputer(strategy='median', keep_empty_features=True),
@@ -130,16 +170,36 @@ models = {
          'decisiontreeclassifier__min_samples_leaf': [5, 10]}
     )
 }
+'''
+Decision tree pipeline: measurement -> fill in missing info ->DT classifier w/hyperparams
+
+Hyperparamaters to make the recall the highest after for failed microchips (TP/TP+FN)
+'''
+
+#CROSS VALIDATION!!!!!
 cv = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED)
 tuning_rows = []
 
-for name, (model, choices) in models.items():
-    search = GridSearchCV(model, choices, cv=cv, scoring='recall', n_jobs=1)
-    search.fit(X_train, y_train)
-    predictions[name] = search.predict(X_test)
-    settings = ', '.join(f'{key.split("__")[-1]}={value}'
-                         for key, value in search.best_params_.items())
-    tuning_rows.append({
+for name, (model, choices) in models.items():   #go thru each model and hyperparam and see which recall for fail is highest
+    search = GridSearchCV(
+        model, 
+        choices, 
+        cv=cv, 
+        scoring='recall', 
+        n_jobs=1
+    )
+    search.fit(X_train, y_train)    #runs cross validation, calculates the avg recall for each hyperparameter config, selects the highest average failure recall, retains the best model on the full training set
+    predictions[name] = search.predict(X_test)  #uses best model to PREDICT whether chips in our TEST dataset will P or F, then will store in predictions dictionary
+
+    '''
+    GridsearchCV compares the models using recall with different hyperparams applied 
+    to them grid search does the hyperparams, CV evals each combo across multiple 
+    training/ validation spots
+    '''
+
+    settings = ', '.join(f'{key.split("__")[-1]}={value}'       #takes the best hyperparams found by gridsearchCV and then converts them into a string so i can read it
+                         for key, value in search.best_params_.items()) #searches highest mean validation recall obtained during GridSearchCV
+    tuning_rows.append({    #save tunhing results to a list
         'Model': name,
         'best_settings': settings,
         'training_CV_failure_recall_pct': round(100 * search.best_score_, 1)
@@ -147,41 +207,73 @@ for name, (model, choices) in models.items():
     print(f'{name}: {settings}; training CV failure recall = '
           f'{100 * search.best_score_:.1f}%')
 
-pd.DataFrame(tuning_rows).to_csv(RESULTS_DIR / 'tuning.csv', index=False)
+pd.DataFrame(tuning_rows).to_csv(   #save results to DF
+    RESULTS_DIR / 'tuning.csv',
+    index=False
+    )
 
-# 4. compare the baseline and both models on the SAME held-out test set
+# 4. compare the baseline and both models on the SAME held-out test set, HOW DOES THE MODEL PERFORM
 score_rows = []
 for name, predicted in predictions.items():
-    tn, fp, fn, tp = confusion_matrix(y_test, predicted, labels=[0, 1]).ravel()
+    tn, fp, fn, tp = confusion_matrix(y_test, predicted, labels=[0, 1]).ravel() #turns the confusion matrix into 4 values that can be assigned to variables
     score_rows.append({
         'Model': name, 'test_samples': len(y_test),
-        'TN': int(tn), 'FP': int(fp), 'FN': int(fn), 'TP': int(tp),
+        'TN': int(tn), 
+        'FP': int(fp), 
+        'FN': int(fn), 
+        'TP': int(tp),
         'accuracy_pct': round(100 * accuracy_score(y_test, predicted), 1),
-        'failure_recall_pct': round(100 * recall_score(y_test, predicted,
-                                                      zero_division=0), 1),
-        'failure_precision_pct': round(100 * precision_score(y_test, predicted,
-                                                            zero_division=0), 1)
+        'failure_recall_pct': round(100 * recall_score(y_test, predicted, zero_division=0), 1),
+        'failure_precision_pct': round(100 * precision_score(y_test, predicted,  zero_division=0), 1)                                                     
     })
-scores = pd.DataFrame(score_rows)
+
+scores = pd.DataFrame(score_rows)   #put scores into DF
 scores.to_csv(RESULTS_DIR / 'model_results.csv', index=False)
 print('\nTEST RESULTS\n', scores.to_string(index=False))
 
-# the model comparison plot is created with the other report figures in section 8.
+# the model comparison plot is created with the other report figures later in section 8.
 
-# 5. PCA: look for patterns WITHOUT using labels to find the components
-# Colors are added after PCA is fitted, just to see where failures appear.
+
+
+
+# 5. PCA: look for patterns WITHOUT using labels to find the components, unsupervised!
+'''
+Remember what PCA is really doing: it is reducing the amount of features in a dataset while 
+attempting to have the variance of the data stay as similar as possible.
+
+The colors are added after PCA is fitted, just to see where failures appear on the heatmap.
+590 features and 1567 samples, we want to try and narrow down the featues being used
+
+Sensor 1 measures temperature.
+Sensor 2 measures temperature at a nearby location.
+Sensor 3 measures pressure.
+
+we probably dont need both 1 and 2 since they almost always rise and fall together, that is the idea of PCA. 
+This practice MAKES NEW components called principal components! 
+
+But what this is actually doing is reducing the sensor data and reducing it to 2 dimensions to create a 
+scatterplot to see whether passing and failing chips exhibit a pattern. for visualization purposes only
+'''
+
 X_scaled = make_pipeline(
     SimpleImputer(strategy='median', keep_empty_features=True),
-    StandardScaler()
-).fit_transform(X_train)
+    StandardScaler()    #scale before PCA because pCA looks for directions with greatest variance, need all measurements to be scaled in order for this to be accurate!
+).fit_transform(X_train) #Fits both preprocessing steps using your training data and transforms that data.
+
 pca = PCA(n_components=2, random_state=SEED)
-components = pca.fit_transform(X_scaled)
+components = pca.fit_transform(X_scaled)    #this makes the principal components, before PCA each chip had 590 sensor measurements, now each chip only has 2, PCA has no idea which of these are passing/failing. We need the graph these now to see similarities
+
+
+'''
+Scatterplot to see if fails and sucesses have a trend in the PC1&2
+'''
 plt.figure(figsize=(7, 4))
+
 for value, label in [(0, 'Pass'), (1, 'Fail')]:
     mask = y_train.to_numpy() == value
     plt.scatter(components[mask, 0], components[mask, 1],
                 s=13, alpha=0.55, label=label)
-plt.xlabel(f'PC1: {100 * pca.explained_variance_ratio_[0]:.1f}% of variance')
+plt.xlabel(f'PC1: {100 * pca.explained_variance_ratio_[0]:.1f}% of variance')   #PC1 explains x% and PC2 explains y%, together they explain x+y%, which means 1-x+y is in the other PC's
 plt.ylabel(f'PC2: {100 * pca.explained_variance_ratio_[1]:.1f}% of variance')
 plt.title('PCA of training sensor measurements')
 plt.legend()
@@ -190,19 +282,29 @@ plt.savefig(FIGURES_DIR / 'pca.png', dpi=160)
 plt.close()
 
 # 6. failure analysis with TWO variables: missing readings and production time
+
 # Both cutoffs are estimated using TRAINING data only.
-missing_cutoff = X_train.isna().sum(axis=1).median()
-time_cutoff = timestamps.iloc[train_rows].median()
 
-missing_groups = np.where(X_test.isna().sum(axis=1) > missing_cutoff,
-                          'More missing', 'Fewer missing')
-time_groups = np.where(timestamps.iloc[test_rows] > time_cutoff,
-                       'Later', 'Earlier')
-slice_variables = {
-    'Missing sensor readings': missing_groups,
-    'Production timestamp': time_groups
-}
+'''
+This is called slice analysis: does my models perform differently on different types of semiconductor chips?
+Does failure detection changes depending on:
+1. How many sensor readings are missing?
+2. When the chip was produced?
+more or fewer vs. later or earlier in production. This is what we are comparing here.
 
+'''
+missing_cutoff = X_train.isna().sum(axis=1).median()    #determines the cutoff between more or fewer, checks to see how many NaN's, then finds the median of NaNs, thats our cutoff
+time_cutoff = timestamps.iloc[train_rows].median()  #same idea for timestep, find the median, and that is our cutoff time
+
+missing_groups = np.where(X_test.isna().sum(axis=1) > missing_cutoff, 'More missing', 'Fewer missing')  #assignment of groups
+                          
+time_groups = np.where(timestamps.iloc[test_rows] > time_cutoff, 'Later', 'Earlier')    #assignment of groups
+
+#stored into dictionary
+slice_variables = {'Missing sensor readings': missing_groups, 'Production timestamp': time_groups }
+
+
+#subgroup analysis, Claude wrote this out for me when I told it what I wanted (thank you Claude)
 slice_rows = []
 for variable, groups in slice_variables.items():
     for name in ['Logistic Regression', 'Decision Tree']:
@@ -216,15 +318,21 @@ for variable, groups in slice_variables.items():
             missed = failures - found
             lower, upper = recall_interval(found, failures)
             slice_rows.append({
-                'Model': name, 'variable': variable, 'slice': group,
-                'sample_size': n, 'actual_failures': failures,
-                'detected_failures': found, 'missed_failures': missed,
+                'Model': name, 
+                'variable': variable, 
+                'slice': group,
+                'sample_size': n, 
+                'actual_failures': failures,
+                'detected_failures': found, 
+                'missed_failures': missed,
                 'failure_recall_pct': round(100 * found / failures, 1)
                                       if failures else np.nan,
                 'recall_95pct_low': lower, 'recall_95pct_high': upper,
                 'exploratory': 'Yes' if variable == 'Production timestamp' else 'No'
             })
 
+#Identify the subgroup with the lowest observed failure recall, identifying which subgroup our already-trained models struggle with most.
+#whole idea is to identify our weakness or struggles in  slice analysis
 slices = pd.DataFrame(slice_rows)
 # The worst result is discovered by looking at test data, so flag it exploratory.
 valid = slices['failure_recall_pct'].notna()
@@ -237,17 +345,33 @@ print('\nSLICE RESULTS\n', slices.to_string(index=False))
 print(f'\nMissing-data split: >{missing_cutoff:g} vs <={missing_cutoff:g} readings')
 print(f'Time split: after vs on/before {time_cutoff}')
 
+
+
 # 7. business impact: compare errors using an ILLUSTRATIVE cost assumption
-# The dataset does NOT contain actual inspection or defect cost figures.
-costs = scores[['Model', 'FP', 'FN', 'TP']].copy()
-costs['illustrative_error_cost'] = (costs['FP'] * EXTRA_INSPECTION_COST +
-                                    costs['FN'] * MISSED_FAILURE_COST)
-costs['break_even_FN_to_FP_ratio_vs_baseline'] = costs.apply(
-    lambda row: round(row['FP'] / row['TP'], 2) if row['TP'] else np.nan, axis=1
-)
+# The dataset does NOT contain actual inspection or defect cost figures, this was done at professors request
+costs = scores[['Model', 'FP', 'FN', 'TP']].copy()  #make a copy of them that we can read for thisin costs
+
+costs['illustrative_error_cost'] = (costs['FP'] * EXTRA_INSPECTION_COST + costs['FN'] * MISSED_FAILURE_COST) #combines the cost of a extra test and a failed chip
+
+'''
+Break-even -> the point where using custom model costs the same amount as using your baseline (always good).
+FP/TP. every TP reps a defecitve chip my model would have caught but the Always pass baseline would miss
+each TP avoids 1 missed failure cost, while every FP introduces one extra-inscpetion cost(this is less than the failure cost)
+
+The theory is if missing a defective chip costs more than (break_even_ratio) times an unnecessary inspection, my model has a lower 
+illustrative error cost than Always Pass.
+'''
+costs['break_even_FN_to_FP_ratio_vs_baseline'] = costs.apply(lambda row: round(row['FP'] / row['TP'], 2) if row['TP'] else np.nan, axis=1)
+
+#save to CSV in the repo
 costs.to_csv(RESULTS_DIR / 'cost_comparison.csv', index=False)
+
+#model comparison: find the model with the lowest cost, and report this: know which one would cost our company the LEAST!!
+#a model that catches all the failed chips but produces too many false positives will cost the company more than missing only a ew failed chips... at least thats how i think about it.
 preferred = costs.loc[costs['illustrative_error_cost'].idxmin(), 'Model']
 
+
+# summary of what we have done, ChatGPT added this i never took it out, its kind of nice.
 summary = (
     'Decision: flag manufacturing samples for extra inspection, not automatic scrap.\n'
     f'Locked split: 70/30 stratified, seed {SEED}; primary metric: failure recall.\n'
@@ -269,10 +393,16 @@ summary = (
     'production validation, or additional false-positive burden disagree.\n'
     'These are production entities, not verified individual finished chips.\n'
 )
+
+
+#log and display results
 (RESULTS_DIR / 'summary.txt').write_text(summary, encoding='utf-8')
 print('\nBUSINESS COST COMPARISON (illustrative)\n', costs.to_string(index=False))
 print('\n' + summary)
-# 8. create every figure used in the final report
+
+#-----------------------------------------------------figures used in the report---------------------------------------------------------------------------------------
+
+# 8. create every figure used in the final report, ChatGPT helped me make these figures look good for the report.
 # All numbers below come from the dataset or the test results above.
 # The colors and labels match the graphs in the Word/PDF report.
 TEAL = '#21858d'
